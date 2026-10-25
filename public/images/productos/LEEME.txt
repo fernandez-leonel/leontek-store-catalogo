@@ -1,0 +1,4 @@
+Colocá aquí las fotos de tus productos. Ejemplo:
+  funda-silicona-iphone-13.jpg
+Luego referenciala en src/data/products.js así:
+  image: '/images/productos/funda-silicona-iphone-13.jpg'

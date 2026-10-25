@@ -1,0 +1,15 @@
+# Dependencias
+node_modules/
+
+# Archivos generados por Vite
+dist/
+
+# Variables de entorno y secretos
+.env
+.env.*
+!.env.example
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+.vite-cache/

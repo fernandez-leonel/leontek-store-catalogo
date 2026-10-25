@@ -28,15 +28,18 @@ function obtenerImagen(url) {
   return data.publicUrl;
 }
 
+function normalizarModalidad(modalidad) {
+  return String(modalidad || '').trim().toLowerCase().replace(/[ -]+/g, '_');
+}
+
+function esPorEncargo(modalidad) {
+  const valor = normalizarModalidad(modalidad);
+  return valor === 'por_encargo' || valor === 'encargo' || valor === 'a_pedido';
+}
+
 function calcularDisponibilidad(variantes = []) {
-  if (variantes.some((v) => v.cantidad > 0)) {
-    return 'Disponible';
-  }
-
-  if (variantes.some((v) => v.modalidad === 'por_encargo')) {
-    return 'Por encargo';
-  }
-
+  if (variantes.some((v) => Number(v.cantidad || 0) > 0)) return 'Disponible';
+  if (variantes.some((v) => esPorEncargo(v.modalidad))) return 'Por encargo';
   return 'Agotado';
 }
 
@@ -98,9 +101,9 @@ function transformarProducto(producto, categorias, imagenes, variantes) {
         ? `${v.modelos_dispositivo.marca} ${v.modelos_dispositivo.modelo}`
         : null,
       color: v.color,
-      stock: v.cantidad,
-      modality: v.modalidad,
-      available: v.cantidad > 0 || v.modalidad === 'por_encargo',
+      stock: Number(v.cantidad || 0),
+      modality: normalizarModalidad(v.modalidad),
+      available: Number(v.cantidad || 0) > 0 || esPorEncargo(v.modalidad),
     })),
 
     images: imagenesProducto.map((i) => ({

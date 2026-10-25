@@ -107,6 +107,7 @@ function App() {
   const [products, setProducts] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
+  const [selectedVariants, setSelectedVariants] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -141,10 +142,46 @@ function App() {
 
   const whatsappReady = /^\d{10,15}$/.test(WHATSAPP_NUMBER);
 
-  const makeWhatsAppLink = (product) => {
+  const isByOrder = (variant) => {
+    const modality = String(variant?.modality || '').trim().toLowerCase().replace(/[ -]+/g, '_');
+    return modality === 'por_encargo' || modality === 'encargo' || modality === 'a_pedido';
+  };
+
+  const getProductOptions = (product) => {
+    const variants = product.variants || [];
+    const models = [...new Map(
+      variants.filter((variant) => variant.modelId && variant.model)
+        .map((variant) => [variant.modelId, { id: variant.modelId, name: variant.model }])
+    ).values()];
+    const current = selectedVariants[product.id] || {};
+    const selectedModelId = models.some((model) => model.id === current.modelId)
+      ? current.modelId
+      : (models[0]?.id || '');
+    const modelVariants = selectedModelId
+      ? variants.filter((variant) => variant.modelId === selectedModelId)
+      : variants.filter((variant) => !variant.modelId);
+    const colors = [...new Set(modelVariants.map((variant) => variant.color).filter(Boolean))];
+    const selectedColor = colors.includes(current.color) ? current.color : (colors[0] || '');
+    const selectedVariant = modelVariants.find((variant) => (variant.color || '') === selectedColor) || modelVariants[0] || null;
+    return { models, selectedModelId, modelVariants, colors, selectedColor, selectedVariant };
+  };
+
+  const updateProductSelection = (product, change) => {
+    const options = getProductOptions(product);
+    setSelectedVariants((previous) => ({
+      ...previous,
+      [product.id]: { ...options, ...previous[product.id], ...change },
+    }));
+  };
+
+  const makeWhatsAppLink = (product, model, color, variant) => {
+    const stockMessage = Number(variant?.stock || 0) > 0
+      ? 'Veo que figura disponible. ¿Me confirmás para hacer el pedido?'
+      : 'Veo que figura sin stock. ¿Se puede conseguir por encargo y cuál sería el plazo?';
     const message =
       `Hola LEONTEK STORE! Quiero consultar por: ${product.name}. ` +
-      'Modelo de mi celular: ____. ¿Precio y disponibilidad?';
+      `Modelo: ${model || 'A confirmar'}. Color: ${color || 'A confirmar'}. ` +
+      `Precio publicado: ${money(product.price)}. ${stockMessage}`;
 
     if (whatsappReady) {
       return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
@@ -432,32 +469,84 @@ function App() {
                       <h3>{product.name}</h3>
                       <p>{product.description}</p>
 
-                      <div className="product-meta">
-                        <span>Modelos</span>
-                        <strong>{product.models}</strong>
-                      </div>
+                      {(() => {
+                        const options = getProductOptions(product);
+                        const selectedVariant = options.selectedVariant;
+                        const hasModelChoices = options.models.length > 0;
+                        const selectedStock = Number(selectedVariant?.stock || 0);
+                        const status = !selectedVariant
+                          ? 'Consultar disponibilidad'
+                          : selectedStock > 0
+                            ? `Disponible · ${selectedStock} en stock`
+                            : isByOrder(selectedVariant)
+                              ? 'Sin stock · disponible por encargo'
+                              : 'Sin stock';
+                        const statusClass = selectedStock > 0
+                          ? 'variant-status variant-status-in-stock'
+                          : 'variant-status variant-status-out-stock';
+                        const selectedModel = options.models.find((model) => model.id === options.selectedModelId)?.name || '';
+                        return (
+                          <div className="variant-picker">
+                            {hasModelChoices && (
+                              <label className="variant-field">
+                                <span>Modelo de celular</span>
+                                <select
+                                  value={options.selectedModelId}
+                                  onChange={(event) => {
+                                    const nextModelId = event.target.value;
+                                    const nextVariant = (product.variants || []).find((variant) => variant.modelId === nextModelId);
+                                    setSelectedVariants((previous) => ({
+                                      ...previous,
+                                      [product.id]: { modelId: nextModelId, color: nextVariant?.color || '' },
+                                    }));
+                                  }}
+                                  aria-label={`Elegir modelo para ${product.name}`}
+                                >
+                                  {options.models.map((model) => (
+                                    <option key={model.id} value={model.id}>{model.name}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            )}
 
-                      <div className="product-meta">
-                        <span>Colores</span>
-                        <strong>{product.colors}</strong>
-                      </div>
+                            <label className="variant-field">
+                              <span>Color</span>
+                              <select
+                                value={options.selectedColor}
+                                onChange={(event) => updateProductSelection(product, { color: event.target.value })}
+                                disabled={options.colors.length === 0}
+                                aria-label={`Elegir color para ${product.name}`}
+                              >
+                                {options.colors.length === 0
+                                  ? <option value="">Consultar colores</option>
+                                  : options.colors.map((color) => <option key={color} value={color}>{color}</option>)}
+                              </select>
+                            </label>
 
-                      <div className="product-buy">
-                        <strong className="product-price">
-                          {money(product.price)}
-                        </strong>
+                            <div className={statusClass} role="status">
+                              <span className="variant-status-dot" />
+                              <span>{status}</span>
+                            </div>
+                            {selectedVariant && selectedStock <= 0 && (
+                              <p className="variant-help">{isByOrder(selectedVariant) ? 'Podés consultarnos para pedirlo por encargo.' : 'No hay unidades disponibles ahora. Consultanos por WhatsApp para verificar reposición.'}</p>
+                            )}
 
-                        <a
-                          className="product-cta"
-                          href={makeWhatsAppLink(product)}
-                          target="_blank"
-                          rel="noreferrer"
-                          aria-label={`Consultar por ${product.name}`}
-                        >
-                          <MessageCircle size={17} />
-                          Consultar
-                        </a>
-                      </div>
+                            <div className="product-buy">
+                              <strong className="product-price">{money(product.price)}</strong>
+                              <a
+                                className="product-cta"
+                                href={makeWhatsAppLink(product, selectedModel, options.selectedColor, selectedVariant)}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={`Consultar por ${product.name}${selectedModel ? `, ${selectedModel}` : ''}${options.selectedColor ? `, color ${options.selectedColor}` : ''}`}
+                              >
+                                <MessageCircle size={17} />
+                                {selectedVariant && selectedStock <= 0 ? (isByOrder(selectedVariant) ? 'Consultar por encargo' : 'Consultar reposición') : 'Consultar'}
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </article>
                 ))}

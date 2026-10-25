@@ -13,6 +13,11 @@ import {
   X,
 } from 'lucide-react';
 import { categories } from './data/products.js';
+import {
+  obtenerDisponibilidad,
+  obtenerOpcionesProducto,
+  obtenerStock,
+} from './lib/catalogo-stock.js';
 import { obtenerCatalogo } from './services/catalogo.service.js';
 
 // IMPORTANTE:
@@ -142,45 +147,32 @@ function App() {
 
   const whatsappReady = /^\d{10,15}$/.test(WHATSAPP_NUMBER);
 
-  const isByOrder = (variant) => {
-    const modality = String(variant?.modality || '').trim().toLowerCase().replace(/[ -]+/g, '_');
-    return modality === 'por_encargo' || modality === 'encargo' || modality === 'a_pedido';
-  };
-
   const getProductOptions = (product) => {
-    const variants = product.variants || [];
-    const models = [...new Map(
-      variants.filter((variant) => variant.modelId && variant.model)
-        .map((variant) => [variant.modelId, { id: variant.modelId, name: variant.model }])
-    ).values()];
-    const current = selectedVariants[product.id] || {};
-    const selectedModelId = models.some((model) => model.id === current.modelId)
-      ? current.modelId
-      : (models[0]?.id || '');
-    const modelVariants = selectedModelId
-      ? variants.filter((variant) => variant.modelId === selectedModelId)
-      : variants.filter((variant) => !variant.modelId);
-    const colors = [...new Set(modelVariants.map((variant) => variant.color).filter(Boolean))];
-    const selectedColor = colors.includes(current.color) ? current.color : (colors[0] || '');
-    const selectedVariant = modelVariants.find((variant) => (variant.color || '') === selectedColor) || modelVariants[0] || null;
-    return { models, selectedModelId, modelVariants, colors, selectedColor, selectedVariant };
+    return obtenerOpcionesProducto(product, selectedVariants[product.id] || {});
   };
 
   const updateProductSelection = (product, change) => {
-    const options = getProductOptions(product);
     setSelectedVariants((previous) => ({
       ...previous,
-      [product.id]: { ...options, ...previous[product.id], ...change },
+      [product.id]: { ...previous[product.id], ...change },
     }));
   };
 
   const makeWhatsAppLink = (product, model, color, variant) => {
-    const stockMessage = Number(variant?.stock || 0) > 0
-      ? 'Veo que figura disponible. ¿Me confirmás para hacer el pedido?'
-      : 'Veo que figura sin stock. ¿Se puede conseguir por encargo y cuál sería el plazo?';
+    const stock = obtenerStock(product, variant);
+    const availability = obtenerDisponibilidad(stock, variant?.modality);
+    const stockMessage = availability.action === 'Consultar por pedido' ||
+      availability.action === 'Consultar por encargo'
+        ? 'Quiero consultar para pedirlo. ¿Cuál sería el plazo?'
+        : stock === null
+          ? '¿Me confirmás la disponibilidad?'
+          : stock > 0
+            ? 'Veo que figura disponible. ¿Me confirmás para hacer el pedido?'
+            : 'Veo que figura sin stock. ¿Se puede conseguir por reposición y cuál sería el plazo?';
     const message =
       `Hola LEONTEK STORE! Quiero consultar por: ${product.name}. ` +
-      `Modelo: ${model || 'A confirmar'}. Color: ${color || 'A confirmar'}. ` +
+      `Modelo: ${model || (product.isTemperedGlass ? 'Consultar compatibilidad' : 'A confirmar')}. ` +
+      `Color: ${color || (product.isTemperedGlass ? 'No aplica' : 'A confirmar')}. ` +
       `Precio publicado: ${money(product.price)}. ${stockMessage}`;
 
     if (whatsappReady) {
@@ -473,14 +465,22 @@ function App() {
                         const options = getProductOptions(product);
                         const selectedVariant = options.selectedVariant;
                         const hasModelChoices = options.models.length > 0;
-                        const selectedStock = Number(selectedVariant?.stock || 0);
-                        const status = !selectedVariant
-                          ? 'Consultar disponibilidad'
-                          : selectedStock > 0
-                            ? `Disponible · ${selectedStock} en stock`
-                            : isByOrder(selectedVariant)
-                              ? 'Sin stock · disponible por encargo'
-                              : 'Sin stock';
+                        const selectedStock = obtenerStock(product, selectedVariant);
+                        const availability = selectedStock === null
+                          ? {
+                              status: 'Consultar disponibilidad',
+                              help: 'No hay grupos asociados a este modelo. Consultanos por WhatsApp para confirmar compatibilidad y stock.',
+                              action: 'Consultar disponibilidad',
+                              available: false,
+                            }
+                          : selectedVariant
+                            ? obtenerDisponibilidad(selectedStock, selectedVariant.modality)
+                          : {
+                              status: 'Consultar disponibilidad',
+                              help: '',
+                              action: 'Consultar',
+                              available: false,
+                            };
                         const statusClass = selectedStock > 0
                           ? 'variant-status variant-status-in-stock'
                           : 'variant-status variant-status-out-stock';
@@ -509,26 +509,30 @@ function App() {
                               </label>
                             )}
 
-                            <label className="variant-field">
-                              <span>Color</span>
-                              <select
-                                value={options.selectedColor}
-                                onChange={(event) => updateProductSelection(product, { color: event.target.value })}
-                                disabled={options.colors.length === 0}
-                                aria-label={`Elegir color para ${product.name}`}
-                              >
-                                {options.colors.length === 0
-                                  ? <option value="">Consultar colores</option>
-                                  : options.colors.map((color) => <option key={color} value={color}>{color}</option>)}
-                              </select>
-                            </label>
+                            {product.isTemperedGlass ? (
+                              !hasModelChoices && <p className="variant-help">Consultar compatibilidad</p>
+                            ) : (
+                              <label className="variant-field">
+                                <span>Color</span>
+                                <select
+                                  value={options.selectedColor}
+                                  onChange={(event) => updateProductSelection(product, { color: event.target.value })}
+                                  disabled={options.colors.length === 0}
+                                  aria-label={`Elegir color para ${product.name}`}
+                                >
+                                  {options.colors.length === 0
+                                    ? <option value="">Consultar colores</option>
+                                    : options.colors.map((color) => <option key={color} value={color}>{color}</option>)}
+                                </select>
+                              </label>
+                            )}
 
                             <div className={statusClass} role="status">
                               <span className="variant-status-dot" />
-                              <span>{status}</span>
+                              <span>{availability.status}</span>
                             </div>
-                            {selectedVariant && selectedStock <= 0 && (
-                              <p className="variant-help">{isByOrder(selectedVariant) ? 'Podés consultarnos para pedirlo por encargo.' : 'No hay unidades disponibles ahora. Consultanos por WhatsApp para verificar reposición.'}</p>
+                            {availability.help && (
+                              <p className="variant-help">{availability.help}</p>
                             )}
 
                             <div className="product-buy">
@@ -541,7 +545,7 @@ function App() {
                                 aria-label={`Consultar por ${product.name}${selectedModel ? `, ${selectedModel}` : ''}${options.selectedColor ? `, color ${options.selectedColor}` : ''}`}
                               >
                                 <MessageCircle size={17} />
-                                {selectedVariant && selectedStock <= 0 ? (isByOrder(selectedVariant) ? 'Consultar por encargo' : 'Consultar reposición') : 'Consultar'}
+                                {availability.action}
                               </a>
                             </div>
                           </div>

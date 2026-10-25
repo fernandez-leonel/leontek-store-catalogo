@@ -18,7 +18,7 @@ import { obtenerCatalogo } from './services/catalogo.service.js';
 // IMPORTANTE:
 // Reemplazá las X por tu número de WhatsApp.
 // Argentina: 549 + característica + número, sin +, espacios ni guiones.
-const WHATSAPP_NUMBER = '549xxxxxxxxxx';
+const WHATSAPP_NUMBER = '5493777417531';
 const INSTAGRAM_URL = 'https://www.instagram.com/leontek_store/';
 
 function money(value) {

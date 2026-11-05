@@ -43,5 +43,11 @@ Antes de desplegar, ejecutá en el SQL Editor del proyecto Supabase existente la
 
 Las modalidades `stock`, `ambos` y `pedido` controlan los avisos y enlaces de consulta. El catálogo no procesa compras ni descuenta inventario: las consultas se realizan por WhatsApp. Ejecutá `npm test` y `npm run build` para validar cambios.
 
-## 6. Publicarlo en internet
+## 6. Combos y promociones
+
+El catálogo puede mostrar combos activos y promociones vigentes usando las tablas creadas por `../leontek-store-admin/supabase/migrations/20261104000000_combos_promotions.sql`. Hasta que se aplique esa migración en el proyecto compartido, los productos siguen cargando y se muestra un aviso no bloqueante indicando que las ofertas no están disponibles.
+
+Los descuentos se calculan al mostrar el catálogo y no cambian el precio base almacenado. La disponibilidad de cada combo se deriva del menor stock entre sus componentes reales; el catálogo no reserva ni descuenta cantidades porque las consultas se completan por WhatsApp y no existe un checkout transaccional. Confirmá disponibilidad antes de cerrar cada pedido.
+
+## 7. Publicarlo en internet
 Podés subir el proyecto a GitHub y desplegarlo con Vercel o Netlify. Antes de publicarlo, configurá tu WhatsApp, cargá fotos reales y revisá precios/modelos. Después de `npm run build`, los archivos listos para publicar quedan en la carpeta `dist`.

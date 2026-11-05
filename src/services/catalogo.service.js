@@ -4,8 +4,8 @@ import {
   esVidrioTemplado,
   normalizarModalidad,
   obtenerDisponibilidad,
-  obtenerStockCompartidoParaModelo,
 } from '../lib/catalogo-stock.js';
+import { calcularDisponibilidadCombo } from '../lib/ofertas.js';
 
 const BUCKET_PRODUCTOS = 'Productos';
 
@@ -98,6 +98,7 @@ function transformarProducto(producto, categorias, imagenes, variantesPorProduct
   return {
     id: producto.id,
     name: producto.nombre,
+    categoryId: producto.categoria_id,
     category: isTemperedGlass
       ? 'templados'
       : categoriasPorSlug[categoria?.slug] || categoria?.slug || 'accesorios',
@@ -154,10 +155,20 @@ function transformarProducto(producto, categorias, imagenes, variantesPorProduct
   };
 }
 
+async function obtenerFilasPaginadas(consulta, pageSize = 500) {
+  const rows = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await consulta().range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) return rows;
+  }
+}
+
 export async function obtenerCatalogo() {
   const { data: productos, error: errorProductos } = await supabase
     .from('productos')
-    .select('*')
+    .select('id, nombre, categoria_id, descripcion, precio, destacado, orden, estado')
     .eq('estado', 'publicado')
     .order('orden', { ascending: true });
 
@@ -182,19 +193,19 @@ export async function obtenerCatalogo() {
     idsCategorias.length
       ? supabase
           .from('categorias')
-          .select('*')
+          .select('id, nombre, slug')
           .in('id', idsCategorias)
       : Promise.resolve({ data: [], error: null }),
 
     supabase
       .from('imagenes_producto')
-      .select('*')
+      .select('id, producto_id, url, principal, orden, texto_alternativo')
       .in('producto_id', idsProductos)
       .order('orden', { ascending: true }),
 
     supabase
       .from('variantes_producto')
-      .select('*')
+      .select('id, producto_id, modelo_id, color, cantidad, modalidad, activa')
       .in('producto_id', idsProductos)
       .eq('activa', true),
 
@@ -240,7 +251,7 @@ export async function obtenerCatalogo() {
   if (idsModelos.length) {
     const { data, error } = await supabase
       .from('modelos_dispositivo')
-      .select('*')
+      .select('id, marca, modelo')
       .in('id', idsModelos);
 
     if (error) {
@@ -299,4 +310,69 @@ export async function obtenerCatalogo() {
       inventoryGroupsPorProducto
     )
   );
+}
+
+export async function obtenerOfertas(productos) {
+  let combos;
+  let componentesCombo;
+  let promociones;
+  let productosPromocion;
+  let categoriasPromocion;
+  try {
+    [combos, componentesCombo, promociones, productosPromocion, categoriasPromocion] = await Promise.all([
+      obtenerFilasPaginadas(() => supabase.from('combos')
+        .select('id, slug, nombre, descripcion, imagen_url, precio')
+        .order('nombre')),
+      obtenerFilasPaginadas(() => supabase.from('combos_componentes')
+        .select('combo_id, producto_id, variante_id, inventario_id, cantidad')),
+      obtenerFilasPaginadas(() => supabase.from('promociones')
+        .select('id, nombre, descripcion, tipo, valor, alcance, inicia_at, finaliza_at, prioridad, imagen_url, condiciones')),
+      obtenerFilasPaginadas(() => supabase.from('promociones_productos')
+        .select('promocion_id, producto_id')),
+      obtenerFilasPaginadas(() => supabase.from('promociones_categorias')
+        .select('promocion_id, categoria_id')),
+    ]);
+  } catch (error) {
+    throw new Error(`No se pudieron cargar las ofertas: ${error.message}`);
+  }
+
+  const productosPorId = new Map((productos || []).map(producto => [producto.id, producto]));
+  const promocionesMapeadas = promociones.map(promocion => ({
+    ...promocion,
+    estado: 'activa',
+    productIds: productosPromocion
+      .filter(row => row.promocion_id === promocion.id)
+      .map(row => row.producto_id),
+    categoryIds: categoriasPromocion
+      .filter(row => row.promocion_id === promocion.id)
+      .map(row => row.categoria_id),
+  }));
+  const combosMapeados = combos.map(combo => {
+    const componentes = componentesCombo
+      .filter(componente => componente.combo_id === combo.id)
+      .map(componente => {
+        const producto = productosPorId.get(componente.producto_id);
+        const variante = producto?.variants.find(item => item.id === componente.variante_id);
+        const grupo = producto?.inventoryGroups.find(item => item.id === componente.inventario_id);
+        const destinoValido = componente.variante_id ? variante : grupo;
+        const modelo = variante?.model || grupo?.models.map(item => item.name).filter(Boolean).join(', ');
+        return {
+          productId: componente.producto_id,
+          variantId: componente.variante_id,
+          inventoryId: componente.inventario_id,
+          quantity: Number(componente.cantidad),
+          stock: destinoValido ? Number(destinoValido.stock) : 0,
+          productName: producto?.name || 'Producto no disponible',
+          label: `${producto?.name || 'Producto no disponible'}${modelo ? ` · ${modelo}` : ''}${variante?.color ? ` / ${variante.color}` : ''}`,
+        };
+      });
+    return {
+      ...combo,
+      image: obtenerImagen(combo.imagen_url),
+      components: componentes,
+      maxUnits: calcularDisponibilidadCombo(componentes),
+    };
+  });
+
+  return { combos: combosMapeados, promotions: promocionesMapeadas };
 }

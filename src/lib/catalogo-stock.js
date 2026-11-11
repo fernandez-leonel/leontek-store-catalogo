@@ -2,6 +2,16 @@ export function esVidrioTemplado(categoria = {}) {
   return /vidrio|templad/i.test(`${categoria.nombre || ''} ${categoria.slug || ''}`);
 }
 
+function esColorSeleccionable(color) {
+  const normalizedColor = String(color || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return normalizedColor !== '' &&
+    !['unico', 'no aplica', 'sin color', 'consultar colores'].includes(normalizedColor);
+}
+
 export function normalizarModalidad(modalidad) {
   const value = String(modalidad || 'stock').trim().toLowerCase().replace(/[ -]+/g, '_');
   if (['por_encargo', 'encargo', 'a_pedido'].includes(value)) return 'pedido';
@@ -106,7 +116,9 @@ export function obtenerOpcionesProducto(producto, seleccionActual = {}) {
   const modelVariants = selectedModelId
     ? variantes.filter((variante) => variante.modelId === selectedModelId)
     : variantes.filter((variante) => !variante.modelId);
-  const colors = [...new Set(modelVariants.map((variante) => variante.color).filter(Boolean))];
+  const colors = [...new Set(
+    modelVariants.map((variante) => variante.color).filter(esColorSeleccionable)
+  )];
   const selectedColor = colors.includes(seleccionActual.color)
     ? seleccionActual.color
     : (colors[0] || '');

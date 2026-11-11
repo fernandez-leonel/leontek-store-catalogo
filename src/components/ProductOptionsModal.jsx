@@ -204,25 +204,20 @@ export function ProductOptionsModal({
             !hasModelChoices && (
               <p className="variant-help">Consultar compatibilidad según modelo</p>
             )
-          ) : (
+          ) : options.colors.length > 0 && (
             <div className="variant-field">
               <label htmlFor="modal-color-select">Color</label>
               <select
                 id="modal-color-select"
                 value={options.selectedColor}
                 onChange={(event) => onUpdateSelection({ color: event.target.value })}
-                disabled={options.colors.length === 0}
                 aria-label={`Elegir color para ${product.name}`}
               >
-                {options.colors.length === 0 ? (
-                  <option value="">Consultar colores</option>
-                ) : (
-                  options.colors.map((color) => (
-                    <option key={color} value={color}>
-                      {color}
-                    </option>
-                  ))
-                )}
+                {options.colors.map((color) => (
+                  <option key={color} value={color}>
+                    {color}
+                  </option>
+                ))}
               </select>
             </div>
           )}

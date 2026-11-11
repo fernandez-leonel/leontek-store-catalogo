@@ -102,6 +102,41 @@ test('preserves funda models, per-model colors, and independent variant stock', 
   assert.equal(obtenerStock(product, otherModel.selectedVariant), 7);
 });
 
+test('hides placeholder colors without losing the generic variant stock', () => {
+  const product = {
+    id: 'charger',
+    isTemperedGlass: false,
+    variants: [
+      { id: 'charger-generic', modelId: null, color: 'Único', stock: 3, modality: 'stock' },
+    ],
+    inventoryGroups: [],
+  };
+
+  const options = obtenerOpcionesProducto(product);
+
+  assert.deepEqual(options.colors, []);
+  assert.equal(options.selectedColor, '');
+  assert.equal(options.selectedVariant.id, 'charger-generic');
+  assert.equal(obtenerStock(product, options.selectedVariant), 3);
+});
+
+test('keeps real colors and removes placeholder entries from the selector', () => {
+  const options = obtenerOpcionesProducto({
+    id: 'charger-colors',
+    isTemperedGlass: false,
+    variants: [
+      { id: 'charger-unique', modelId: null, color: 'Unico', stock: 2 },
+      { id: 'charger-black', modelId: null, color: 'Negro', stock: 4 },
+      { id: 'charger-blue', modelId: null, color: 'Azul', stock: 1 },
+    ],
+    inventoryGroups: [],
+  });
+
+  assert.deepEqual(options.colors, ['Negro', 'Azul']);
+  assert.equal(options.selectedColor, 'Negro');
+  assert.equal(options.selectedVariant.id, 'charger-black');
+});
+
 test('does not fabricate variants, colors, or stock when normal product data is absent', () => {
   const options = obtenerOpcionesProducto({
     id: 'case-empty',

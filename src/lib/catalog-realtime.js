@@ -4,26 +4,29 @@
  * Permite que el catálogo público (Cloudflare Pages) se actualice en tiempo real
  * cuando el administrador realiza cambios desde el panel local (Supabase).
  *
- * Principios de diseño:
- * 1. Cache Invalidation Pattern con Debounce: Los eventos de WebSocket actúan
- *    como señales livianas de invalidación. Múltiples escrituras concurrentes
- *    (ej. producto + imágenes + variantes) se consolidan en una sola recarga limpia.
- * 2. Consulta pública segura: No se inyectan registros crudos del WebSocket. Los
- *    datos se consultan mediante la API pública de Supabase respetando RLS
- *    (solo productos publicados, sin costos ni datos administrativos).
- * 3. Actualización no intrusiva: La recarga en segundo plano no activa skeletons
- *    ni recarga la página, manteniendo filtros, búsqueda, scroll y selección.
- * 4. Singleton con Ref-Counting: Mantiene una única conexión WebSocket compartida
- *    para evitar saturación de conexiones.
- * 5. Sincronización al volver a la pestaña (visibilitychange) y reconexión (online).
+ * Principios de diseño y ciclo de vida definitivo:
+ * 1. Canal persistente mientras el catálogo esté abierto:
+ *    En una SPA de comercio electrónico, el canal Realtime debe mantenerse activo
+ *    y no ser destruido por ciclos de render o React StrictMode (autoTeardown = false).
+ * 2. Reconexión no destructiva:
+ *    No se destruye el canal con removeChannel() ante variaciones transitorias.
+ *    Supabase / Phoenix Socket gestiona automáticamente los heartbeats (cada 30s)
+ *    y re-une el canal si hay una desconexión de red.
+ * 3. Invalidación rápida (Debounce 150ms con MaxWait 300ms):
+ *    Múltiples escrituras concurrentes (producto, imágenes, variantes, stock)
+ *    se consolidan en una sola recarga limpia sin retrasos perceptibles.
+ * 4. Actualización silenciosa de React:
+ *    La recarga en segundo plano no activa skeletons ni parpadeos,
+ *    reconciliando productos en memoria sin perder filtros, búsqueda ni scroll.
  * ============================================================================
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 
 export const CATALOG_CHANNEL_NAME = 'public-catalog-realtime';
-export const DEFAULT_DEBOUNCE_MS = 350;
-export const DEFAULT_FALLBACK_POLL_MS = 5 * 60 * 1000; // 5 minutos de respaldo pasivo
+export const DEFAULT_DEBOUNCE_MS = 150;
+export const MAX_DEBOUNCE_WAIT_MS = 300;
+export const DEFAULT_FALLBACK_POLL_MS = 5 * 60 * 1000;
 
 export const MONITORED_TABLES = [
   'productos',
@@ -39,43 +42,66 @@ export const MONITORED_TABLES = [
   'promociones_categorias',
 ];
 
+/**
+ * Retorna la hora local con precisión de milisegundos para telemetría precisa
+ */
+export function getTimestamp() {
+  const d = new Date();
+  const pad = (n, z = 2) => String(n).padStart(z, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+}
+
 export class CatalogRealtimeManager {
   constructor(supabaseClient, options = {}) {
     this.supabase = supabaseClient;
     this.debounceMs = options.debounceMs || DEFAULT_DEBOUNCE_MS;
+    this.maxWaitMs = options.maxWaitMs || MAX_DEBOUNCE_WAIT_MS;
     this.fallbackPollMs = options.fallbackPollMs || DEFAULT_FALLBACK_POLL_MS;
     this.enableFallbackPolling = options.enableFallbackPolling !== false;
+    this.autoTeardown = options.autoTeardown === true; // En producción es false para mantener la conexión viva
+    this.monitoredTables = options.monitoredTables || ['productos']; // Prueba mínima: exclusivamente productos
 
     this.subscribers = new Set();
     this.channel = null;
     this.connectionState = 'DISCONNECTED'; // 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR'
     this.debounceTimer = null;
+    this.firstEventTime = null;
     this.fallbackTimer = null;
+    this.reconnectTimer = null;
+    this.reconnectAttempts = 0;
     this.lastInvalidatedAt = 0;
-    this.isSyncing = false;
 
     this.handleOnline = this.handleOnline.bind(this);
     this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
-    this.handleWindowFocus = this.handleWindowFocus.bind(this);
+  }
+
+  /**
+   * Obtiene dinámicamente el estado exacto actual del socket y del canal
+   */
+  getConnectionStateString() {
+    const isSocketOpen = Boolean(this.supabase?.realtime?.isConnected?.());
+    const channelState = this.channel?.state || 'sin_canal';
+    return `${this.connectionState} (Socket: ${isSocketOpen ? 'OPEN' : 'CLOSED'}, Canal: ${channelState})`;
   }
 
   /**
    * Suscribe un callback a eventos de cambio en el catálogo.
-   * Inicia la conexión Realtime si es el primer suscriptor.
+   * Inicia la conexión Realtime si el canal aún no existe o está desconectado.
    */
   subscribe(callback) {
     if (typeof callback !== 'function') return () => {};
 
     this.subscribers.add(callback);
 
-    if (this.subscribers.size === 1) {
+    if (!this.channel || this.connectionState === 'DISCONNECTED') {
       this.initConnection();
       this.bindWindowEvents();
     }
 
     return () => {
       this.subscribers.delete(callback);
-      if (this.subscribers.size === 0) {
+      // Solo en modo de testing (autoTeardown: true) se destruye el canal al desuscribirse
+      if (this.subscribers.size === 0 && this.autoTeardown) {
         this.cleanupConnection();
         this.unbindWindowEvents();
       }
@@ -91,15 +117,18 @@ export class CatalogRealtimeManager {
       return;
     }
 
-    if (this.channel) return;
+    // Si ya existe un canal activo o uniéndose, evitar suscripciones duplicadas
+    if (this.channel && (this.channel.state === 'joined' || this.channel.state === 'joining')) {
+      return;
+    }
 
     this.connectionState = 'CONNECTING';
 
     try {
       this.channel = this.supabase.channel(CATALOG_CHANNEL_NAME);
 
-      // Escuchar cambios en cada una de las tablas del catálogo
-      for (const table of MONITORED_TABLES) {
+      // Escuchar cambios exclusivamente en las tablas monitoreadas (prueba mínima: productos)
+      for (const table of this.monitoredTables) {
         this.channel.on(
           'postgres_changes',
           { event: '*', schema: 'public', table },
@@ -107,7 +136,7 @@ export class CatalogRealtimeManager {
         );
       }
 
-      // Canal de broadcast opcional para invalidaciones explícitas desde el administrador
+      // Canal de broadcast opcional para invalidaciones explícitas
       this.channel.on(
         'broadcast',
         { event: 'catalog_invalidate' },
@@ -115,9 +144,20 @@ export class CatalogRealtimeManager {
       );
 
       this.channel.subscribe((status, err) => {
+        const ts = getTimestamp();
         if (status === 'SUBSCRIBED') {
           this.connectionState = 'CONNECTED';
+          this.reconnectAttempts = 0;
           this.notifyStatusChange('CONNECTED');
+
+          const registeredFilters = this.channel?.bindings?.postgres_changes?.map((b) => ({
+            table: b.filter?.table || '*',
+            event: b.filter?.event,
+            serverId: b.id,
+          }));
+
+          console.info(`[CatalogRealtime] ✅ [${ts}] Conectado exitosamente al canal en tiempo real. Estado: ${this.getConnectionStateString()}`);
+          console.info(`[CatalogRealtime] 📋 Filtros registrados (${registeredFilters?.length || 0}):`, registeredFilters);
         } else if (
           status === 'TIMED_OUT' ||
           status === 'CHANNEL_ERROR' ||
@@ -125,26 +165,62 @@ export class CatalogRealtimeManager {
         ) {
           this.connectionState = 'DISCONNECTED';
           this.notifyStatusChange('DISCONNECTED', err);
+          console.warn(`[CatalogRealtime] ⚠️ [${ts}] Estado del canal (${status}):`, err || 'Desconexión transitoria');
+          this.scheduleReconnect();
         }
       });
 
       this.setupFallbackPolling();
     } catch (err) {
-      console.warn('[CatalogRealtime] Error al iniciar canal WebSocket:', err);
+      const ts = getTimestamp();
+      console.warn(`[CatalogRealtime] ❌ [${ts}] Error al iniciar canal WebSocket:`, err);
       this.connectionState = 'ERROR';
+      this.scheduleReconnect();
     }
+  }
+
+  /**
+   * Reintenta conectar de manera no destructiva (sin remover ni destruir el canal)
+   */
+  scheduleReconnect() {
+    if (this.reconnectTimer) return;
+    this.reconnectAttempts = (this.reconnectAttempts || 0) + 1;
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.channel && this.channel.state !== 'joined') {
+        const ts = getTimestamp();
+        console.info(`[CatalogRealtime] 🔄 [${ts}] Reintentando suscripción al canal (intento #${this.reconnectAttempts})...`);
+        try {
+          this.channel.subscribe();
+        } catch (_err) {
+          // Si el canal estaba en un estado inválido, reinicializar limpiamente
+          this.cleanupConnection();
+          this.initConnection();
+        }
+      }
+    }, delay);
   }
 
   /**
    * Procesa eventos filtrando cambios que no afectan al catálogo público
    */
   handleEvent(entity, payload) {
+    const timeStr = getTimestamp();
+    const wsStatus = this.getConnectionStateString();
+    const eventType = payload?.eventType || payload?.event || 'UPDATE';
+    const recordId = payload?.new?.id || payload?.old?.id || 'N/A';
+
+    console.info(`[CatalogRealtime] 🔔 [${timeStr}] Hora de recepción del evento: '${entity}' (${eventType}) id=${recordId} | Estado WebSocket: ${wsStatus}`);
+
     // Si es un producto que era borrador y sigue siendo borrador, ignorar
     if (
       entity === 'productos' &&
       payload?.new?.estado === 'borrador' &&
       payload?.old?.estado === 'borrador'
     ) {
+      console.info(`[CatalogRealtime] ⏭️ [${timeStr}] Ignorando cambio en producto no publicado (borrador).`);
       return;
     }
 
@@ -154,28 +230,55 @@ export class CatalogRealtimeManager {
       payload?.new?.estado === 'pausado' &&
       payload?.old?.estado === 'pausado'
     ) {
+      console.info(`[CatalogRealtime] ⏭️ [${timeStr}] Ignorando cambio en producto pausado sin cambio de estado.`);
       return;
     }
 
     this.scheduleInvalidation({
       entity,
-      eventType: payload?.eventType || 'UNKNOWN',
+      eventType,
+      recordId,
       timestamp: Date.now(),
+      receivedAt: timeStr,
     });
   }
 
   /**
-   * Agrupa ráfagas de eventos en un único refresco consolidado (Debounce)
+   * Agrupa ráfagas de eventos en un único refresco consolidado (Debounce con MaxWait)
+   * Garantiza que la invalidación se ejecute sin demora excesiva incluso con múltiples eventos sucesivos.
    */
   scheduleInvalidation(meta) {
+    const now = Date.now();
+    const timeStr = getTimestamp();
+
+    if (!this.firstEventTime) {
+      this.firstEventTime = now;
+    }
+
+    // Si alcanzamos el tiempo máximo de espera desde el primer evento, invalidar inmediatamente
+    if (now - this.firstEventTime >= this.maxWaitMs) {
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = null;
+      }
+      this.firstEventTime = null;
+      console.info(`[CatalogRealtime] ⚡ [${timeStr}] MaxWait (${this.maxWaitMs}ms) alcanzado. Invalidando inmediatamente.`);
+      this.triggerInvalidate(meta);
+      return;
+    }
+
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
     }
 
+    const remainingMaxWait = Math.max(0, this.maxWaitMs - (now - this.firstEventTime));
+    const delay = Math.min(this.debounceMs, remainingMaxWait);
+
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
+      this.firstEventTime = null;
       this.triggerInvalidate(meta);
-    }, this.debounceMs);
+    }, delay);
   }
 
   /**
@@ -183,6 +286,11 @@ export class CatalogRealtimeManager {
    */
   triggerInvalidate(meta = {}) {
     this.lastInvalidatedAt = Date.now();
+    const timeStr = getTimestamp();
+    const wsStatus = this.getConnectionStateString();
+
+    console.info(`[CatalogRealtime] 🔄 [${timeStr}] Disparando invalidación a suscriptores | Estado WebSocket: ${wsStatus}`);
+
     for (const callback of this.subscribers) {
       try {
         callback(meta);
@@ -193,17 +301,23 @@ export class CatalogRealtimeManager {
   }
 
   /**
-   * Cierra el canal WebSocket y limpia timers
+   * Cierra el canal WebSocket y limpia timers (usado al destruir la aplicación o en tests)
    */
   cleanupConnection() {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+    this.firstEventTime = null;
 
     if (this.fallbackTimer) {
       clearInterval(this.fallbackTimer);
       this.fallbackTimer = null;
+    }
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
 
     if (this.channel) {
@@ -219,12 +333,20 @@ export class CatalogRealtimeManager {
   }
 
   /**
+   * Destrucción explícita para pruebas unitarias o reinicio completo
+   */
+  destroy() {
+    this.cleanupConnection();
+    this.unbindWindowEvents();
+    this.subscribers.clear();
+  }
+
+  /**
    * Listeners de ventana para reconexión y foco de pestaña
    */
   bindWindowEvents() {
     if (typeof window === 'undefined') return;
     window.addEventListener('online', this.handleOnline);
-    window.addEventListener('focus', this.handleWindowFocus);
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', this.handleVisibilityChange);
     }
@@ -233,45 +355,63 @@ export class CatalogRealtimeManager {
   unbindWindowEvents() {
     if (typeof window === 'undefined') return;
     window.removeEventListener('online', this.handleOnline);
-    window.removeEventListener('focus', this.handleWindowFocus);
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     }
   }
 
   handleOnline() {
-    if (!this.channel || this.connectionState !== 'CONNECTED') {
-      this.cleanupConnection();
-      this.initConnection();
+    const ts = getTimestamp();
+    console.info(`[CatalogRealtime] 🌐 [${ts}] Conexión de red recuperada (online). Verificando canal...`);
+    if (this.channel && this.channel.state !== 'joined') {
+      try {
+        this.channel.subscribe();
+      } catch (_e) {
+        this.cleanupConnection();
+        this.initConnection();
+      }
     }
     this.scheduleInvalidation({ reason: 'network_online' });
   }
 
   handleVisibilityChange() {
-    if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-      const now = Date.now();
-      // Si pasaron más de 30 segundos en segundo plano, sincronizar catálogo
-      if (now - this.lastInvalidatedAt > 30000) {
-        this.scheduleInvalidation({ reason: 'visibility_change' });
-      }
-    }
-  }
+    if (typeof document === 'undefined') return;
 
-  handleWindowFocus() {
-    const now = Date.now();
-    if (now - this.lastInvalidatedAt > 45000) {
-      this.scheduleInvalidation({ reason: 'window_focus' });
+    if (document.visibilityState === 'visible') {
+      const now = Date.now();
+      const ts = getTimestamp();
+
+      // Si el canal no está unido, re-suscribirlo
+      if (this.channel && this.channel.state !== 'joined') {
+        console.info(`[CatalogRealtime] 👁️ [${ts}] Pestaña visible: re-suscribiendo canal inactivo...`);
+        try {
+          this.channel.subscribe();
+        } catch (_e) {
+          this.cleanupConnection();
+          this.initConnection();
+        }
+      }
+
+      // Respaldo pasivo: si pasaron más de 60 segundos en segundo plano, sincronizar catálogo
+      if (now - this.lastInvalidatedAt > 60000) {
+        console.info(`[CatalogRealtime] 👁️ [${ts}] Pestaña visible tras más de 60s sin sincronización. Sincronizando respaldo.`);
+        this.scheduleInvalidation({ reason: 'visibility_change_backup' });
+      }
     }
   }
 
   setupFallbackPolling() {
-    if (!this.enableFallbackPolling || this.fallbackTimer) return;
-    this.fallbackTimer = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-        return;
+    if (this.enableFallbackPolling && !this.fallbackTimer) {
+      this.fallbackTimer = setInterval(() => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          return;
+        }
+        this.triggerInvalidate({ reason: 'fallback_polling' });
+      }, this.fallbackPollMs);
+      if (typeof this.fallbackTimer?.unref === 'function') {
+        this.fallbackTimer.unref();
       }
-      this.triggerInvalidate({ reason: 'fallback_polling' });
-    }, this.fallbackPollMs);
+    }
   }
 
   notifyStatusChange(state, _err) {
@@ -279,11 +419,11 @@ export class CatalogRealtimeManager {
   }
 }
 
-// Instancia singleton para reutilizar la conexión WebSocket
+// Instancia singleton para reutilizar la conexión WebSocket en toda la aplicación
 let globalManagerInstance = null;
 
-export function getCatalogRealtimeManager(supabaseClient, options) {
-  if (!globalManagerInstance || globalManagerInstance.supabase !== supabaseClient) {
+export function getCatalogRealtimeManager(supabaseClient, options = {}) {
+  if (!globalManagerInstance || (supabaseClient && globalManagerInstance.supabase !== supabaseClient)) {
     globalManagerInstance = new CatalogRealtimeManager(supabaseClient, options);
   }
   return globalManagerInstance;
@@ -291,10 +431,6 @@ export function getCatalogRealtimeManager(supabaseClient, options) {
 
 /**
  * Hook de React para suscribir el catálogo a actualizaciones en tiempo real
- *
- * @param {object} supabaseClient - Cliente de Supabase
- * @param {function} onInvalidate - Callback a ejecutar cuando se detecta un cambio
- * @param {object} options - Opciones de configuración
  */
 export function useCatalogRealtime(supabaseClient, onInvalidate, options = {}) {
   const { active = true, debounceMs = DEFAULT_DEBOUNCE_MS } = options;
@@ -350,7 +486,7 @@ export function reconcileProductList(currentList = [], incomingList = []) {
 
   const incomingMap = new Map(incomingList.map((item) => [item.id, item]));
 
-  // 1. Actualizar productos existentes conservando la lista
+  // 1. Conservar y actualizar productos existentes
   const updated = currentList
     .filter((item) => incomingMap.has(item.id))
     .map((item) => ({
@@ -362,5 +498,10 @@ export function reconcileProductList(currentList = [], incomingList = []) {
   const currentIds = new Set(currentList.map((i) => i.id));
   const trulyNew = incomingList.filter((item) => !currentIds.has(item.id));
 
-  return [...updated, ...trulyNew];
+  // 3. Ordenar respetando la secuencia oficial de incomingList
+  const incomingOrderMap = new Map(incomingList.map((item, index) => [item.id, index]));
+  const result = [...updated, ...trulyNew];
+  result.sort((a, b) => (incomingOrderMap.get(a.id) ?? 9999) - (incomingOrderMap.get(b.id) ?? 9999));
+
+  return result;
 }

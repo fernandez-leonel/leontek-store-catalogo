@@ -54,7 +54,7 @@ test('Realtime: MONITORED_TABLES includes all catalog impact entities', () => {
 
 test('Realtime: Manager initializes channel and subscribes on first subscriber', () => {
   const mockSupabase = createMockSupabase();
-  const manager = new CatalogRealtimeManager(mockSupabase, { debounceMs: 50 });
+  const manager = new CatalogRealtimeManager(mockSupabase, { debounceMs: 50, autoTeardown: true });
 
   assert.equal(manager.subscribers.size, 0);
   assert.equal(manager.connectionState, 'DISCONNECTED');
@@ -77,7 +77,7 @@ test('Realtime: Manager initializes channel and subscribes on first subscriber',
 
 test('Realtime: Ref-counting shares single channel among multiple subscribers', () => {
   const mockSupabase = createMockSupabase();
-  const manager = new CatalogRealtimeManager(mockSupabase, { debounceMs: 50 });
+  const manager = new CatalogRealtimeManager(mockSupabase, { debounceMs: 50, autoTeardown: true });
 
   const unsub1 = manager.subscribe(() => {});
   const unsub2 = manager.subscribe(() => {});

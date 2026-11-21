@@ -12,6 +12,8 @@ import {
 import {
   useCatalogRealtime,
   reconcileProductList,
+  getTimestamp,
+  getCatalogRealtimeManager,
 } from '../lib/catalog-realtime.js';
 
 /**
@@ -34,6 +36,14 @@ export function useCatalog(options = {}) {
 
   const isInitialMount = useRef(true);
   const isFetchingRef = useRef(false);
+  const needsRefetchRef = useRef(false);
+
+  /**
+   * Helper para obtener el estado WebSocket en vivo en el momento exacto del log
+   */
+  const getLiveWsStatus = useCallback(() => {
+    return getCatalogRealtimeManager(supabase)?.getConnectionStateString?.() || 'N/A';
+  }, []);
 
   /**
    * Carga los datos públicos del catálogo.
@@ -41,13 +51,22 @@ export function useCatalog(options = {}) {
    * para no interrumpir la navegación, búsqueda o selección del usuario.
    */
   const loadData = useCallback(async ({ background = false } = {}) => {
-    // Evitar múltiples peticiones HTTP concurrentes si ya hay una en curso
-    if (isFetchingRef.current) return;
+    const startTime = performance.now();
+    const timeStartStr = getTimestamp();
+
+    // Si ya hay una consulta HTTP en curso, agendar otra para cuando termine sin perderla
+    if (isFetchingRef.current) {
+      console.info(`[useCatalog] ⏸️ [${timeStartStr}] Consulta en vuelo. Encolando recarga inmediata para cuando finalice.`);
+      needsRefetchRef.current = true;
+      return;
+    }
     isFetchingRef.current = true;
 
     if (!background) {
       setCatalogLoading(true);
       setCatalogError('');
+    } else {
+      console.info(`[useCatalog] 📥 [${timeStartStr}] Hora de inicio de la consulta (segundo plano) | Estado WebSocket: ${getLiveWsStatus()}`);
     }
 
     try {
@@ -57,7 +76,10 @@ export function useCatalog(options = {}) {
       ]);
 
       if (background) {
-        setProducts((prev) => reconcileProductList(prev, data));
+        setProducts((prev) => {
+          const reconciled = reconcileProductList(prev, data);
+          return reconciled;
+        });
       } else {
         setProducts(data);
       }
@@ -66,19 +88,28 @@ export function useCatalog(options = {}) {
         setCategories(construirCategoriasDinamicas(categoriasDb));
       }
 
-      try {
-        const offerData = await obtenerOfertas(data);
-        setOffers(offerData);
-        setOffersError('');
-      } catch (offersLoadError) {
-        // En modo background, no destruir ofertas existentes si una petición aislada falla
-        if (!background) {
-          setOffers({ combos: [], promotions: [] });
-        }
-        setOffersError('');
-      }
+      const durationMs = Math.round(performance.now() - startTime);
+      const timeEndStr = getTimestamp();
+      console.info(`[useCatalog] ✅ [${timeEndStr}] Hora de finalización de la consulta (duración: ${durationMs}ms, ${data.length} productos) | Estado WebSocket: ${getLiveWsStatus()}`);
+
+      // Las ofertas se cargan de forma desacoplada para que los productos se actualicen de inmediato en pantalla
+      obtenerOfertas(data)
+        .then((offerData) => {
+          setOffers(offerData);
+          setOffersError('');
+        })
+        .catch((offersErr) => {
+          if (!background) {
+            setOffers({ combos: [], promotions: [] });
+          }
+          setOffersError('');
+          console.warn('[useCatalog] Advertencia al sincronizar ofertas:', offersErr?.message);
+        });
+
     } catch (error) {
-      console.warn('[useCatalog] Error al cargar catálogo:', error);
+      const durationMs = Math.round(performance.now() - startTime);
+      const timeEndStr = getTimestamp();
+      console.warn(`[useCatalog] ❌ [${timeEndStr}] Error en consulta de catálogo (${durationMs}ms):`, error);
       if (!background) {
         setCatalogError(
           error instanceof Error
@@ -91,8 +122,14 @@ export function useCatalog(options = {}) {
       if (!background) {
         setCatalogLoading(false);
       }
+      // Si se produjo una invalidación mientras la petición estaba en vuelo, ejecutarla ahora
+      if (needsRefetchRef.current) {
+        needsRefetchRef.current = false;
+        console.info('[useCatalog] 🔁 Ejecutando recarga encolada pendiente...');
+        loadData({ background: true });
+      }
     }
-  }, []);
+  }, [getLiveWsStatus]);
 
   // Carga inicial
   useEffect(() => {

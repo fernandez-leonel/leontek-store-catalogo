@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
-import { obtenerCatalogo, obtenerOfertas } from '../services/catalogo.service.js';
+import { obtenerCatalogo, obtenerCategorias, obtenerOfertas } from '../services/catalogo.service.js';
+import { categories as defaultCategories, construirCategoriasDinamicas } from '../data/products.js';
 
 /**
  * Hook para gestionar la carga y sincronización del catálogo y ofertas desde Supabase.
  */
 export function useCatalog() {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState(defaultCategories);
   const [offers, setOffers] = useState({ combos: [], promotions: [] });
   const [offersError, setOffersError] = useState('');
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -17,9 +19,16 @@ export function useCatalog() {
     setCatalogError('');
 
     try {
-      const data = await obtenerCatalogo();
+      const [data, categoriasDb] = await Promise.all([
+        obtenerCatalogo(),
+        obtenerCategorias(),
+      ]);
       if (cancelled) return;
       setProducts(data);
+
+      if (categoriasDb && categoriasDb.length) {
+        setCategories(construirCategoriasDinamicas(categoriasDb));
+      }
 
       try {
         const offerData = await obtenerOfertas(data);
@@ -65,6 +74,7 @@ export function useCatalog() {
 
   return {
     products,
+    categories,
     offers,
     offersError,
     catalogLoading,

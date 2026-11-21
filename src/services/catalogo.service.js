@@ -102,6 +102,7 @@ function transformarProducto(producto, categorias, imagenes, variantesPorProduct
     category: isTemperedGlass
       ? 'templados'
       : categoriasPorSlug[categoria?.slug] || categoria?.slug || 'accesorios',
+    categoryName: categoria?.nombre || '',
     description: producto.descripcion || '',
     models: obtenerModelos(variantesProducto, isTemperedGlass, inventoryGroups),
     colors: obtenerColores(variantesProducto, isTemperedGlass),
@@ -165,6 +166,21 @@ async function obtenerFilasPaginadas(consulta, pageSize = 500) {
   }
 }
 
+export async function obtenerCategorias() {
+  const { data, error } = await supabase
+    .from('categorias')
+    .select('id, nombre, slug, activa, orden')
+    .eq('activa', true)
+    .order('orden', { ascending: true });
+
+  if (error) {
+    console.warn(`No se pudieron cargar las categorías: ${error.message}`);
+    return [];
+  }
+
+  return data || [];
+}
+
 export async function obtenerCatalogo() {
   const { data: productos, error: errorProductos } = await supabase
     .from('productos')
@@ -190,12 +206,11 @@ export async function obtenerCatalogo() {
     resultadoInventarios,
     resultadoModelosInventario,
   ] = await Promise.all([
-    idsCategorias.length
-      ? supabase
-          .from('categorias')
-          .select('id, nombre, slug')
-          .in('id', idsCategorias)
-      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from('categorias')
+      .select('id, nombre, slug, activa, orden')
+      .eq('activa', true)
+      .order('orden', { ascending: true }),
 
     supabase
       .from('imagenes_producto')

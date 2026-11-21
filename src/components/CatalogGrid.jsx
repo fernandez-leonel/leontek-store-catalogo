@@ -43,11 +43,23 @@ export function CatalogGrid({
           <p>Elegí una categoría y consultá por el modelo que necesitás.</p>
         </div>
 
-        <div className="catalog-count">{visibleProducts.length} productos</div>
+        <div className="catalog-count">
+          {visibleProducts.length} productos
+          {category === 'fundas' && ' · Todas las fundas'}
+        </div>
       </div>
 
       <div className="catalog-tools">
         <div className="category-tabs" role="group" aria-label="Filtrar por categoría">
+          {category === 'fundas' && (
+            <button
+              type="button"
+              className="category-tab active"
+              onClick={() => setCategory('fundas')}
+            >
+              Fundas (todas)
+            </button>
+          )}
           {categories.map((item) => (
             <button
               key={item.id}
@@ -115,7 +127,7 @@ export function CatalogGrid({
                 <ProductCard
                   key={product.id}
                   product={product}
-                  categoryLabel={categoryMatch?.label}
+                  categoryLabel={categoryMatch?.label || product.categoryName || product.category}
                   selectedVariantState={selectedVariants[product.id] || {}}
                   onUpdateSelection={(change) => onUpdateProductSelection(product, change)}
                   promotion={promotionsByProduct.get(product.id)}

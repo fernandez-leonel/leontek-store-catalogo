@@ -1,6 +1,9 @@
-import { MessageCircle } from 'lucide-react';
+import { WhatsAppIcon } from './WhatsAppIcon.jsx';
 
-function InstagramIcon({ size = 17 }) {
+/**
+ * Icono vectorial oficial de Instagram.
+ */
+function InstagramIcon({ size = 20 }) {
   return (
     <svg
       width={size}
@@ -11,9 +14,9 @@ function InstagramIcon({ size = 17 }) {
       xmlns="http://www.w3.org/2000/svg"
       style={{ display: 'block', flexShrink: 0 }}
     >
-      <rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" strokeWidth="1.8" />
-      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.8" />
-      <circle cx="17.5" cy="6.8" r="1.1" fill="currentColor" />
+      <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" stroke="currentColor" strokeWidth="2" />
+      <circle cx="12" cy="12" r="4.2" stroke="currentColor" strokeWidth="2" />
+      <circle cx="17.6" cy="6.6" r="1.2" fill="currentColor" />
     </svg>
   );
 }
@@ -25,8 +28,8 @@ export function ContactCard({ whatsappUrl, instagramUrl }) {
   return (
     <section className="contact-section section-wrap" id="contacto">
       <div className="contact-card">
-        <div className="contact-icon">
-          <MessageCircle size={25} />
+        <div className="contact-icon" aria-hidden="true">
+          <WhatsAppIcon size={26} />
         </div>
 
         <div>
@@ -41,13 +44,14 @@ export function ContactCard({ whatsappUrl, instagramUrl }) {
 
         <div className="contact-actions">
           <a
-            className="button button-primary"
+            className="contact-whatsapp-btn"
             href={whatsappUrl}
             target="_blank"
             rel="noreferrer"
+            aria-label="Abrir conversación en WhatsApp con LEONTEK STORE"
           >
-            <MessageCircle size={18} />
-            WhatsApp
+            <WhatsAppIcon size={19} />
+            <span>WhatsApp</span>
           </a>
 
           <a
@@ -55,9 +59,10 @@ export function ContactCard({ whatsappUrl, instagramUrl }) {
             href={instagramUrl}
             target="_blank"
             rel="noreferrer"
+            aria-label="Perfil de Instagram @leontek_store"
           >
-            <InstagramIcon size={17} />
-            @leontek_store
+            <InstagramIcon size={20} />
+            <span>@leontek_store</span>
           </a>
         </div>
       </div>

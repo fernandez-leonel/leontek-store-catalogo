@@ -50,8 +50,37 @@ test('Estado 1: DISPONIBLE genera el mensaje de consulta de disponibilidad oblig
     modality: 'ambos',
   });
 
-  const expected =
-    '¡Hola LEONTEK STORE! 👋 Quería consultar por la Funda de Silicona para iPhone 15, color 46 verde agua. Vi que tiene un precio publicado de $8.000. ¿Me confirmás si sigue disponible? ¡Gracias!';
+  const expected = [
+    '¡Hola LEONTEK STORE!',
+    '',
+    'Quería consultar por la Funda de Silicona para iPhone 15, color 46 verde agua.',
+    '• Precio: $8.000',
+    '',
+    '¿Me confirmás si sigue disponible? ¡Gracias!',
+  ].join('\n');
+
+  assert.equal(message, expected);
+});
+
+test('Producto en promoción genera el formato claro de oferta sin frases artificiales', () => {
+  const message = buildProductWhatsAppMessage({
+    productName: 'Funda MagSafe',
+    model: 'iPhone 13 Pro',
+    color: 'Negro',
+    price: 14500,
+    promotionalPrice: 12000,
+    stock: 2,
+    modality: 'stock',
+  });
+
+  const expected = [
+    '¡Hola LEONTEK STORE!',
+    '',
+    'Quería consultar por la Funda MagSafe para iPhone 13 Pro, color Negro.',
+    '• Precio en oferta: $12.000 (antes: $14.500)',
+    '',
+    '¿Me confirmás si sigue disponible? ¡Gracias!',
+  ].join('\n');
 
   assert.equal(message, expected);
 });
@@ -66,8 +95,14 @@ test('Estado 2: POR ENCARGO genera el mensaje específico de encargo y demora ob
     modality: 'ambos',
   });
 
-  const expected =
-    '¡Hola LEONTEK STORE! 👋 Quería consultar por la Funda de Silicona para iPhone 15, color 46 verde agua. Vi que tiene un precio publicado de $8.000. ¿Se puede conseguir por encargo y cuánto demora aproximadamente? ¡Gracias!';
+  const expected = [
+    '¡Hola LEONTEK STORE!',
+    '',
+    'Quería consultar por la Funda de Silicona para iPhone 15, color 46 verde agua.',
+    '• Precio: $8.000',
+    '',
+    '¿Se puede conseguir por encargo y cuánto demora aproximadamente? ¡Gracias!',
+  ].join('\n');
 
   assert.equal(message, expected);
 });
@@ -82,8 +117,13 @@ test('Estado 3: SIN DISPONIBILIDAD genera el mensaje de consulta de posibilidad 
     modality: 'stock',
   });
 
-  const expected =
-    '¡Hola LEONTEK STORE! 👋 Quería consultar por la Funda de Silicona para iPhone 15, color 46 verde agua. ¿Hay posibilidad de conseguirla? ¡Gracias!';
+  const expected = [
+    '¡Hola LEONTEK STORE!',
+    '',
+    'Quería consultar por la Funda de Silicona para iPhone 15, color 46 verde agua.',
+    '',
+    '¿Hay posibilidad de conseguirla? ¡Gracias!',
+  ].join('\n');
 
   assert.equal(message, expected);
 });
@@ -96,10 +136,17 @@ test('Combos WhatsApp message formats correctly according to availability', () =
     isAvailable: true,
   });
 
-  assert.equal(
-    availableMessage,
-    '¡Hola LEONTEK STORE! 👋 Quería consultar por el combo "Dúo Protección" (Funda MagSafe x1, Vidrio 9D x1), publicado en $15.000. ¿Me confirmás si sigue disponible? ¡Gracias!'
-  );
+  const expectedAvailable = [
+    '¡Hola LEONTEK STORE!',
+    '',
+    'Quería consultar por el combo "Dúo Protección":',
+    '• Incluye: Funda MagSafe x1, Vidrio 9D x1',
+    '• Precio: $15.000',
+    '',
+    '¿Me confirmás si sigue disponible? ¡Gracias!',
+  ].join('\n');
+
+  assert.equal(availableMessage, expectedAvailable);
 
   const unavailableMessage = buildComboWhatsAppMessage({
     comboName: 'Dúo Protección',
@@ -108,8 +155,14 @@ test('Combos WhatsApp message formats correctly according to availability', () =
     isAvailable: false,
   });
 
-  assert.equal(
-    unavailableMessage,
-    '¡Hola LEONTEK STORE! 👋 Quería consultar por el combo "Dúo Protección" (Funda MagSafe x1, Vidrio 9D x1). ¿Hay posibilidad de conseguirlo o armarlo? ¡Gracias!'
-  );
+  const expectedUnavailable = [
+    '¡Hola LEONTEK STORE!',
+    '',
+    'Quería consultar por el combo "Dúo Protección":',
+    '• Incluye: Funda MagSafe x1, Vidrio 9D x1',
+    '',
+    '¿Hay posibilidad de conseguirlo o armarlo? ¡Gracias!',
+  ].join('\n');
+
+  assert.equal(unavailableMessage, expectedUnavailable);
 });

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { MessageCircle, X, ShieldCheck, Sparkles } from 'lucide-react';
+import { X, ShieldCheck, Sparkles, Zap } from 'lucide-react';
+import { WhatsAppIcon } from './WhatsAppIcon.jsx';
 import {
   obtenerOpcionesProducto,
   obtenerStock,
@@ -145,13 +146,15 @@ export function ProductOptionsModal({
           ) : (
             <div className={`options-modal-placeholder placeholder-${product.category}`}>
               <span>
-                {product.category === 'templados'
-                  ? '9H'
-                  : product.category === 'magsafe'
-                    ? '◉'
-                    : product.category === 'accesorios'
-                      ? '⚡'
-                      : 'L'}
+                {product.category === 'templados' ? (
+                  '9H'
+                ) : product.category === 'magsafe' ? (
+                  '◉'
+                ) : product.category === 'accesorios' ? (
+                  <Zap size={28} />
+                ) : (
+                  'LT'
+                )}
               </span>
             </div>
           )}
@@ -243,7 +246,7 @@ export function ProductOptionsModal({
             rel="noreferrer"
             aria-label={`Consultar por ${product.name} en WhatsApp`}
           >
-            <MessageCircle size={18} />
+            <WhatsAppIcon size={18} />
             {buttonAction} por WhatsApp
           </a>
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { MessageCircle } from 'lucide-react';
+import { Search, Zap } from 'lucide-react';
+import { WhatsAppIcon } from './WhatsAppIcon.jsx';
 import {
   obtenerOpcionesProducto,
   obtenerStock,
@@ -35,7 +36,7 @@ function ProductVisualImage({ product, onImageClick }) {
             aria-label={`Ampliar imagen de ${product.name}`}
             title="Ampliar foto"
           >
-            🔍
+            <Search size={14} aria-hidden="true" />
           </button>
         )}
       </div>
@@ -48,13 +49,15 @@ function ProductVisualImage({ product, onImageClick }) {
       aria-label={`Imagen ilustrativa de ${product.name}`}
     >
       <div className="placeholder-symbol" aria-hidden="true">
-        {product.category === 'templados'
-          ? '9H'
-          : product.category === 'magsafe'
-            ? '◉'
-            : product.category === 'accesorios'
-              ? '⚡'
-              : 'L'}
+        {product.category === 'templados' ? (
+          '9H'
+        ) : product.category === 'magsafe' ? (
+          '◉'
+        ) : product.category === 'accesorios' ? (
+          <Zap size={28} />
+        ) : (
+          'LT'
+        )}
       </div>
       <span className="placeholder-label">Foto ilustrativa</span>
     </div>
@@ -143,11 +146,9 @@ export function ProductCard({
   };
 
   const handleCardClick = () => {
-    // En móviles (<= 768px), tocar la tarjeta abre el panel de opciones
-    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
-      if (onOpenOptions) {
-        onOpenOptions(product);
-      }
+    // Abre el modal detallado tanto en móvil como en escritorio
+    if (onOpenOptions) {
+      onOpenOptions(product);
     }
   };
 
@@ -167,14 +168,23 @@ export function ProductCard({
 
       <div className="product-info">
         <span className="product-category">{categoryLabel || product.category}</span>
-        <h3 className="product-title" title={product.name}>
+        <h3 className="product-title" title="Ver detalle y descripción completa">
           {product.name}
         </h3>
+
+        {product.description && (
+          <p className="product-description" title="Ver descripción completa">
+            {product.description}
+          </p>
+        )}
 
         {/* ------------------------------------------------------------------
             VISTA ESCRITORIO (>768px): Selectores, Estado Comercial y WhatsApp Directo
             ------------------------------------------------------------------ */}
-        <div className="product-card-desktop">
+        <div
+          className="product-card-desktop"
+          onClick={(event) => event.stopPropagation()}
+        >
           <div className="variant-picker">
             {hasModelChoices && (
               <div className="variant-field">
@@ -252,7 +262,7 @@ export function ProductCard({
                 rel="noreferrer"
                 aria-label={`Consultar por ${product.name} en WhatsApp`}
               >
-                <MessageCircle size={16} />
+                <WhatsAppIcon size={16} />
                 {buttonAction}
               </a>
             </div>
@@ -282,7 +292,7 @@ export function ProductCard({
             }}
             aria-label={`Ver opciones de ${product.name}`}
           >
-            <MessageCircle size={14} />
+            <WhatsAppIcon size={14} />
             <span>Consultar</span>
           </button>
         </div>

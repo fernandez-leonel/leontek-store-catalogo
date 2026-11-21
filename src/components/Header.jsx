@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
-import { Home, LayoutGrid, Menu, MessageCircle, Smartphone, Sparkles, Tag, X } from 'lucide-react';
+import { Home, LayoutGrid, Menu, MessageCircle, Sparkles, Tag, X } from 'lucide-react';
+import { WhatsAppIcon } from './WhatsAppIcon.jsx';
+import leontekLogo from '../assets/leontek-logo.webp';
 
 /**
  * Cabecera principal de LEONTEK STORE.
- * Barra superior limpia y profesional con logo, navegación por píldoras e icono de WhatsApp destacado.
+ * Barra superior limpia y profesional con logo oficial LT, navegación por píldoras e icono de WhatsApp destacado.
  */
 export function Header({ mobileMenu, setMobileMenu, whatsappUrl }) {
   const headerRef = useRef(null);
@@ -44,9 +46,13 @@ export function Header({ mobileMenu, setMobileMenu, whatsappUrl }) {
 
       <header className="header" ref={headerRef}>
         <a className="brand" href="#inicio" aria-label="LEONTEK STORE inicio">
-          <div className="brand-icon-box" aria-hidden="true">
-            <Smartphone size={22} className="brand-phone-svg" />
-          </div>
+          <img
+            src={leontekLogo}
+            alt="Logo LEONTEK STORE"
+            className="brand-logo-header"
+            width="38"
+            height="38"
+          />
           <div className="brand-copy">
             <strong className="brand-name">
               LEONTEK <span className="brand-accent">STORE</span>
@@ -103,7 +109,7 @@ export function Header({ mobileMenu, setMobileMenu, whatsappUrl }) {
           rel="noreferrer"
           aria-label="Consultas por WhatsApp"
         >
-          <MessageCircle size={17} />
+          <WhatsAppIcon size={18} />
           <span>Consultas por WhatsApp</span>
         </a>
 

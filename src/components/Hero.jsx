@@ -1,12 +1,12 @@
 import {
   ArrowRight,
-  MessageCircle,
   ShieldCheck,
   ShoppingCart,
   Truck,
   Zap,
 } from 'lucide-react';
-import heroShowcaseImg from '../assets/hero-showcase.png';
+import { WhatsAppIcon } from './WhatsAppIcon.jsx';
+import heroShowcaseImg from '../assets/hero-showcase.webp';
 
 /**
  * Sección Hero principal de LEONTEK STORE.
@@ -15,7 +15,7 @@ import heroShowcaseImg from '../assets/hero-showcase.png';
  */
 export function Hero({ whatsappUrl }) {
   // Fallback seguro usando BASE_URL por si se requiere
-  const imageSrc = heroShowcaseImg || `${import.meta.env.BASE_URL}images/hero-showcase.png`;
+  const imageSrc = heroShowcaseImg || `${import.meta.env.BASE_URL}images/hero-showcase.webp`;
 
   return (
     <section className="hero" id="inicio">
@@ -54,7 +54,7 @@ export function Hero({ whatsappUrl }) {
             rel="noreferrer"
             aria-label="Consultar disponibilidad por WhatsApp"
           >
-            <MessageCircle size={18} />
+            <WhatsAppIcon size={18} />
             <span>Consultar disponibilidad</span>
           </a>
         </div>

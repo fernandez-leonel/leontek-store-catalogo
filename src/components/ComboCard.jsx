@@ -1,4 +1,5 @@
-import { MessageCircle, ShoppingBag } from 'lucide-react';
+import { ShoppingBag } from 'lucide-react';
+import { WhatsAppIcon } from './WhatsAppIcon.jsx';
 import { money } from '../utils/format.js';
 import { buildComboWhatsAppMessage } from '../utils/whatsapp.js';
 
@@ -80,7 +81,7 @@ export function ComboCard({ combo, products = [], whatsappNumber }) {
             target="_blank"
             rel="noreferrer"
           >
-            <MessageCircle size={16} /> Consultar combo
+            <WhatsAppIcon size={16} /> Consultar combo
           </a>
         </div>
       </div>

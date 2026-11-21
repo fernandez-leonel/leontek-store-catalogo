@@ -1,4 +1,5 @@
 import { ArrowRight } from 'lucide-react';
+import { WhatsAppIcon } from './WhatsAppIcon.jsx';
 
 /**
  * Sección explicativa de los pasos para realizar un pedido en LEONTEK STORE.
@@ -24,12 +25,15 @@ export function HowToBuy({ whatsappUrl }) {
           </p>
 
           <a
-            className="button button-white"
+            className="order-whatsapp-btn"
             href={whatsappUrl}
             target="_blank"
             rel="noreferrer"
+            aria-label="Consultar por WhatsApp cómo hacer tu pedido"
           >
-            Consultar por WhatsApp <ArrowRight size={18} />
+            <WhatsAppIcon size={18} className="order-btn-icon" />
+            <span>Consultar por WhatsApp</span>
+            <ArrowRight size={16} className="order-btn-arrow" />
           </a>
         </div>
 

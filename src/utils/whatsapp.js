@@ -121,12 +121,12 @@ export function buildProductWhatsAppMessage({
   const formatPrice = (val) => money(val).replace(/\s+/g, '');
   const hasPromo = promotionalPrice !== null && promotionalPrice !== undefined && promotionalPrice < price;
 
-  let priceSentence = '';
+  let priceLine = '';
   if (estado !== 'SIN_DISPONIBILIDAD' && (price || promotionalPrice)) {
     if (hasPromo) {
-      priceSentence = ` Vi que tiene un precio promocional de ${formatPrice(promotionalPrice)} (precio publicado: ${formatPrice(price)}).`;
+      priceLine = `• Precio en oferta: ${formatPrice(promotionalPrice)} (antes: ${formatPrice(price)})`;
     } else {
-      priceSentence = ` Vi que tiene un precio publicado de ${formatPrice(price || promotionalPrice)}.`;
+      priceLine = `• Precio: ${formatPrice(price || promotionalPrice)}`;
     }
   }
 
@@ -144,7 +144,20 @@ export function buildProductWhatsAppMessage({
     closingQuestion = `¿Hay posibilidad de ${pronoun}? ¡Gracias!`;
   }
 
-  return `¡Hola LEONTEK STORE! 👋 Quería consultar por ${itemDescription}.${priceSentence} ${closingQuestion}`;
+  const lines = [
+    '¡Hola LEONTEK STORE!',
+    '',
+    `Quería consultar por ${itemDescription}.`,
+  ];
+
+  if (priceLine) {
+    lines.push(priceLine);
+  }
+
+  lines.push('');
+  lines.push(closingQuestion);
+
+  return lines.join('\n');
 }
 
 /**
@@ -152,19 +165,32 @@ export function buildProductWhatsAppMessage({
  */
 export function buildComboWhatsAppMessage({ comboName, price, componentSummary, isAvailable = true }) {
   const formatPrice = (val) => money(val).replace(/\s+/g, '');
-  const priceText = price ? `, publicado en ${formatPrice(price)}` : '';
-  const componentsText = componentSummary ? ` (${componentSummary})` : '';
+  const priceLine = isAvailable && price ? `• Precio: ${formatPrice(price)}` : '';
+  const componentsLine = componentSummary ? `• Incluye: ${componentSummary}` : '';
+
+  const lines = [
+    '¡Hola LEONTEK STORE!',
+    '',
+    `Quería consultar por el combo "${comboName}":`,
+  ];
+
+  if (componentsLine) lines.push(componentsLine);
+  if (priceLine) lines.push(priceLine);
+
+  lines.push('');
 
   if (isAvailable) {
-    return `¡Hola LEONTEK STORE! 👋 Quería consultar por el combo "${comboName}"${componentsText}${priceText}. ¿Me confirmás si sigue disponible? ¡Gracias!`;
+    lines.push('¿Me confirmás si sigue disponible? ¡Gracias!');
+  } else {
+    lines.push('¿Hay posibilidad de conseguirlo o armarlo? ¡Gracias!');
   }
 
-  return `¡Hola LEONTEK STORE! 👋 Quería consultar por el combo "${comboName}"${componentsText}. ¿Hay posibilidad de conseguirlo o armarlo? ¡Gracias!`;
+  return lines.join('\n');
 }
 
 /**
  * Mensaje general de contacto para consultas de catálogo.
  */
 export function buildGeneralWhatsAppMessage() {
-  return '¡Hola LEONTEK STORE! 👋 Quería hacerles una consulta sobre accesorios para mi celular.';
+  return '¡Hola LEONTEK STORE! Quería hacerles una consulta sobre accesorios para mi celular.';
 }
